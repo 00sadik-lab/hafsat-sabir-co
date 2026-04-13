@@ -141,8 +141,8 @@ function SetupScreen({onSave}) {
   async function save(){
     if(!url||!key){setErr("Both fields required");return;}
     try{
-      await window.storage.set('sb_url',url.trim());
-      await window.storage.set('sb_key',key.trim());
+      localStorage.setItem('sb_url',url.trim());
+      localStorage.setItem('sb_key',key.trim());
       onSave(url.trim(),key.trim());
     }catch(e){setErr(e.message);}
   }
@@ -243,12 +243,12 @@ export default function App(){
 
   // Load credentials from artifact storage
   useEffect(()=>{
-    async function init(){
+    function init(){
       try{
-        const u=await window.storage.get('sb_url');
-        const k=await window.storage.get('sb_key');
-        if(u?.value&&k?.value){
-          const client=makeSB(u.value,k.value);
+        const u=localStorage.getItem('sb_url');
+        const k=localStorage.getItem('sb_key');
+        if(u&&k){
+          const client=makeSB(u,k);
           setSb(client);
           setConfigured(true);
         }
@@ -398,7 +398,7 @@ export default function App(){
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           {overdueLeads.length>0&&<div style={{background:C.redBg,color:C.red,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>⚠ {overdueLeads.length} overdue</div>}
           <div style={{background:C.goldBg,border:`1px solid ${C.goldBorder}`,borderRadius:20,padding:"4px 14px",fontSize:12,color:C.gold,fontWeight:700}}>{fmtNGN(totalNGN)} this month</div>
-          <button onClick={async()=>{await window.storage.delete('sb_url');await window.storage.delete('sb_key');setConfigured(false);setSb(null);}} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",fontSize:10,color:C.textDim,cursor:"pointer",fontFamily:"inherit"}}>⚙</button>
+          <button onClick={()=>{localStorage.removeItem('sb_url');localStorage.removeItem('sb_key');setConfigured(false);setSb(null);}} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 10px",fontSize:10,color:C.textDim,cursor:"pointer",fontFamily:"inherit"}}>⚙</button>
         </div>
       </div>
 
