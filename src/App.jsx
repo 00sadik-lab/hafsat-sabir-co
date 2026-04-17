@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
+const BRAND = { name:"SHS", full:"Business Clarity & Growth Studio", tagline:"Build. Grow. Stay whole." };
 const C = {
   bg:"#F7F3EE", bg2:"#EDE8E0", card:"#FFFFFF", border:"#E2D9CC",
   gold:"#A0692A", goldL:"#C8914E", goldBg:"#FDF5E8", goldBorder:"#E8C97A",
@@ -49,46 +50,42 @@ const SEED_TASKS = [
   {id:"t17",period:"Q4 (Oct–Dec)",goal:"Launch Canton Fair 2026 prep program",done:false,priority:"Medium"},
   {id:"t18",period:"2025 Yearly",goal:"Train 500+ women through digital products",done:false,priority:"High"},
   {id:"t19",period:"2025 Yearly",goal:"Publish 3 products on Selar",done:false,priority:"High"},
-  {id:"t20",period:"2025 Yearly",goal:"Register Hafsat Sabir Co. with CAC",done:false,priority:"Medium"},
+  {id:"t20",period:"2025 Yearly",goal:"Register SHS with CAC",done:false,priority:"Medium"},
 ];
 
 function toNGN(a,c){return a*(RATES[c]||1);}
 function fmtNGN(n){return "\u20A6"+Math.round(n).toLocaleString();}
-function fmtAmt(a,c){return c.split(" ")[0]+Number(a).toLocaleString();}
+function fmtAmt(a,c){return (c||"₦ NGN").split(" ")[0]+Number(a||0).toLocaleString();}
 function today(){return new Date().toISOString().split("T")[0];}
 function isOverdue(d){return d && d<today();}
+function normName(n){return (n||"").trim().toLowerCase();}
 
-function makeSB(url, key) {
-  const base = url.replace(/\/$/, "");
-  const h = {"apikey":key,"Authorization":"Bearer "+key,"Content-Type":"application/json","Prefer":"return=representation"};
+function makeSB(url,key){
+  const base=url.replace(/\/$/,"");
+  const h={"apikey":key,"Authorization":"Bearer "+key,"Content-Type":"application/json","Prefer":"return=representation"};
   return {
-    async get(table){const r=await fetch(base+"/rest/v1/"+table+"?select=*",{headers:h});if(!r.ok)throw new Error(await r.text());return r.json();},
-    async post(table,data){const r=await fetch(base+"/rest/v1/"+table,{method:"POST",headers:h,body:JSON.stringify(data)});if(!r.ok)throw new Error(await r.text());return r.json();},
-    async patch(table,id,data){const r=await fetch(base+"/rest/v1/"+table+"?id=eq."+id,{method:"PATCH",headers:h,body:JSON.stringify(data)});if(!r.ok)throw new Error(await r.text());return r.json();},
-    async del(table,id){const r=await fetch(base+"/rest/v1/"+table+"?id=eq."+id,{method:"DELETE",headers:h});if(!r.ok)throw new Error(await r.text());},
+    async get(t){const r=await fetch(base+"/rest/v1/"+t+"?select=*",{headers:h});if(!r.ok)throw new Error(await r.text());return r.json();},
+    async post(t,d){const r=await fetch(base+"/rest/v1/"+t,{method:"POST",headers:h,body:JSON.stringify(d)});if(!r.ok)throw new Error(await r.text());return r.json();},
+    async patch(t,id,d){const r=await fetch(base+"/rest/v1/"+t+"?id=eq."+id,{method:"PATCH",headers:h,body:JSON.stringify(d)});if(!r.ok)throw new Error(await r.text());return r.json();},
+    async del(t,id){const r=await fetch(base+"/rest/v1/"+t+"?id=eq."+id,{method:"DELETE",headers:h});if(!r.ok)throw new Error(await r.text());},
     async upsertTasks(rows){const r=await fetch(base+"/rest/v1/tasks",{method:"POST",headers:{...h,"Prefer":"resolution=ignore-duplicates,return=representation"},body:JSON.stringify(rows)});if(!r.ok)throw new Error(await r.text());return r.json();}
   };
 }
-const fromRow = r => ({ id: r.id, ...(r.data || {}) });
+const fromRow=r=>({id:r.id,...(r.data||{})});
 
-async function pickContact(onPick, toast$) {
-  if("contacts" in navigator && "ContactsManager" in window) {
-    try {
-      const contacts = await navigator.contacts.select(["name","tel"],{multiple:false});
-      if(contacts.length > 0) {
-        const c = contacts[0];
-        onPick({name:(c.name||[])[0]||"", phone:((c.tel||[])[0]||"").replace(/\s+/g,"")});
-      }
-    } catch(e) { toast$("Contact picker cancelled","err"); }
+// ── CONTACT PICKER — works on Android Chrome; falls back to suggestions on iPhone ──
+async function pickContact(onPick,toast$){
+  if("contacts" in navigator&&"ContactsManager" in window){
+    try{
+      const cs=await navigator.contacts.select(["name","tel"],{multiple:false});
+      if(cs.length>0){const c=cs[0];onPick({name:(c.name||[])[0]||"",phone:((c.tel||[])[0]||"").replace(/\s+/g,"")});}
+    }catch(e){toast$("Contact picker cancelled","err");}
   } else {
-    toast$("Contact picker works on Android Chrome only","err");
+    toast$("On iPhone: type name below — saved contacts will suggest automatically","err");
   }
 }
 
-function Badge({label,bg,color}){
-  const s=LEAD_STYLE[label];
-  return <span style={{background:bg||(s&&s.bg)||C.goldBg,color:color||(s&&s.color)||C.gold,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>{s&&<span style={{width:6,height:6,borderRadius:"50%",background:s.dot}}/>}{label}</span>;
-}
+// ── UI ATOMS ──
 const INP={background:C.bg,border:"1px solid "+C.border,color:C.text,padding:"9px 13px",borderRadius:9,width:"100%",fontSize:13,outline:"none",fontFamily:"inherit"};
 const LBL={color:C.textMuted,fontSize:11,fontWeight:700,letterSpacing:"0.07em",textTransform:"uppercase",display:"block",marginBottom:4};
 function F({label,children}){return <div style={{marginBottom:12}}><label style={LBL}>{label}</label>{children}</div>;}
@@ -97,19 +94,55 @@ function Sel({children,...p}){return <select style={INP} {...p}>{children}</sele
 function Txt(p){return <textarea style={{...INP,resize:"vertical",minHeight:72}} {...p}/>;}
 function Row({children}){return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{children}</div>;}
 function Card({children,style={}}){return <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:16,padding:18,...style}}>{children}</div>;}
-function GoldBtn({children,onClick,style={}}){return <button onClick={onClick} style={{background:"linear-gradient(135deg,"+C.gold+","+C.goldL+")",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",...style}}>{children}</button>;}
+function GoldBtn({children,onClick,style={},disabled}){return <button disabled={disabled} onClick={onClick} style={{background:disabled?"#ccc":"linear-gradient(135deg,"+C.gold+","+C.goldL+")",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:disabled?"not-allowed":"pointer",fontFamily:"inherit",opacity:disabled?0.6:1,...style}}>{children}</button>;}
 function GhostBtn({children,onClick}){return <button onClick={onClick} style={{background:"transparent",color:C.textMuted,border:"1px solid "+C.border,borderRadius:10,padding:"9px 16px",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>{children}</button>;}
+function RedBtn({children,onClick}){return <button onClick={onClick} style={{background:C.red,color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{children}</button>;}
 function SectionHead({title,sub,action}){
   return <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
     <div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:C.text}}>{title}</div>{sub&&<div style={{fontSize:12,color:C.textMuted,marginTop:2}}>{sub}</div>}</div>
     {action}
   </div>;
 }
+function Badge({label,bg,color}){
+  const s=LEAD_STYLE[label];
+  return <span style={{background:bg||(s&&s.bg)||C.goldBg,color:color||(s&&s.color)||C.gold,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>{s&&<span style={{width:6,height:6,borderRadius:"50%",background:s.dot}}/>}{label}</span>;
+}
+
+// Smart name input with autocomplete from existing names
+function NameInput({value,onChange,list,placeholder,style={}}){
+  const [open,setOpen]=useState(false);
+  const [filtered,setFiltered]=useState([]);
+  const ref=useRef(null);
+  useEffect(()=>{
+    const v=(value||"").toLowerCase();
+    if(v.length>0){setFiltered(list.filter(n=>n.toLowerCase().includes(v)&&n.toLowerCase()!==v).slice(0,6));}
+    else setFiltered([]);
+  },[value,list]);
+  useEffect(()=>{
+    function handler(e){if(ref.current&&!ref.current.contains(e.target))setOpen(false);}
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[]);
+  return <div ref={ref} style={{position:"relative"}}>
+    <input style={{...INP,...style}} placeholder={placeholder||"Type name..."} value={value} onChange={e=>{onChange(e.target.value);setOpen(true);}} onFocus={()=>setOpen(true)} autoComplete="off"/>
+    {open&&filtered.length>0&&(
+      <div style={{position:"absolute",top:"100%",left:0,right:0,background:C.card,border:"1px solid "+C.goldBorder,borderRadius:9,zIndex:200,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",maxHeight:200,overflowY:"auto"}}>
+        {filtered.map((n,i)=>(
+          <div key={i} onMouseDown={e=>{e.preventDefault();onChange(n);setOpen(false);}} style={{padding:"9px 13px",fontSize:13,cursor:"pointer",borderBottom:"1px solid "+C.border,color:C.text}} onMouseEnter={e=>e.target.style.background=C.goldBg} onMouseLeave={e=>e.target.style.background="transparent"}>
+            {n}
+          </div>
+        ))}
+      </div>
+    )}
+  </div>;
+}
+
+// Phone field with contact picker button
 function PhoneRow({value,onChange,onPickContact}){
   return <div style={{display:"flex",gap:6}}>
-    <input style={{...INP,flex:1}} placeholder="08012345678" value={value} onChange={onChange}/>
-    <button type="button" title="Pick from phone contacts" onClick={onPickContact}
-      style={{background:C.goldBg,border:"1px solid "+C.goldBorder,borderRadius:9,padding:"0 12px",fontSize:16,cursor:"pointer",flexShrink:0}}>{"📱"}</button>
+    <input style={{...INP,flex:1}} type="tel" placeholder="08012345678" value={value} onChange={onChange} autoComplete="tel"/>
+    <button type="button" title="Pick from contacts (Android Chrome) or type to autofill (iPhone)" onClick={onPickContact}
+      style={{background:C.goldBg,border:"1px solid "+C.goldBorder,borderRadius:9,padding:"0 12px",fontSize:16,cursor:"pointer",flexShrink:0}}>📱</button>
   </div>;
 }
 
@@ -125,42 +158,55 @@ const TABS=[
   {id:"tasks",icon:"✅",label:"Goals"},
 ];
 
-function SetupScreen({onSave}) {
+// ── SETUP SCREEN ──
+function SetupScreen({onSave}){
   const [url,setUrl]=useState("");
   const [key,setKey]=useState("");
   const [err,setErr]=useState("");
   function save(){
     if(!url||!key){setErr("Both fields required");return;}
-    try{
-      localStorage.setItem("sb_url",url.trim());
-      localStorage.setItem("sb_key",key.trim());
-      onSave(url.trim(),key.trim());
-    }catch(e){setErr(e.message);}
+    try{localStorage.setItem("sb_url",url.trim());localStorage.setItem("sb_key",key.trim());onSave(url.trim(),key.trim());}
+    catch(e){setErr(e.message);}
   }
-  const SQL="create table leads (id bigserial primary key, data jsonb default '{}');\ncreate table sales (id bigserial primary key, data jsonb default '{}');\ncreate table customers (id bigserial primary key, data jsonb default '{}');\ncreate table bookings (id bigserial primary key, data jsonb default '{}');\ncreate table intel (id bigserial primary key, data jsonb default '{}');\ncreate table cohorts (id bigserial primary key, data jsonb default '{}');\ncreate table procurement (id bigserial primary key, data jsonb default '{}');\ncreate table tasks (id text primary key, data jsonb default '{}');\n\ndo $$ declare t text; begin\n  foreach t in array array['leads','sales','customers','bookings','intel','cohorts','procurement','tasks'] loop\n    execute format('alter table %I disable row level security', t);\n  end loop;\nend $$;";
+  const SQL=`create table leads (id bigserial primary key, data jsonb default '{}');
+create table sales (id bigserial primary key, data jsonb default '{}');
+create table customers (id bigserial primary key, data jsonb default '{}');
+create table bookings (id bigserial primary key, data jsonb default '{}');
+create table intel (id bigserial primary key, data jsonb default '{}');
+create table cohorts (id bigserial primary key, data jsonb default '{}');
+create table procurement (id bigserial primary key, data jsonb default '{}');
+create table tasks (id text primary key, data jsonb default '{}');
+
+do $$ declare t text; begin
+  foreach t in array array['leads','sales','customers','bookings','intel','cohorts','procurement','tasks'] loop
+    execute format('alter table %I disable row level security', t);
+  end loop;
+end $$;`;
   return(
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Nunito',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap');*{box-sizing:border-box;margin:0;padding:0;}"}</style>
       <div style={{background:C.card,border:"1px solid "+C.border,borderRadius:20,padding:32,maxWidth:560,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,0.08)"}}>
-        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:30,fontWeight:700,color:C.gold,marginBottom:4}}>Hafsat Sabir Co.</div>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:700,color:C.gold,marginBottom:2}}>SHS</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.textMid,marginBottom:2}}>Business Clarity & Growth Studio</div>
         <div style={{fontSize:10,color:C.textMuted,marginBottom:24,letterSpacing:"0.08em",textTransform:"uppercase"}}>One-time database setup</div>
         <div style={{background:C.goldBg,border:"1px solid "+C.goldBorder,borderRadius:12,padding:16,marginBottom:20,fontSize:13,color:C.textMid,lineHeight:2}}>
           <strong style={{color:C.gold}}>3-minute setup:</strong><br/>
           1. Go to <strong>supabase.com</strong> — create a free project<br/>
           2. Open <strong>SQL Editor</strong> — paste and run the SQL below<br/>
-          3. Go to <strong>Project Settings — API</strong> — copy URL + anon key<br/>
-          4. Paste them here — your data saves forever
+          3. Go to <strong>Project Settings → API</strong> — copy URL + anon key<br/>
+          4. Paste them here — your data saves forever ✓
         </div>
         <div style={{background:"#1a1a2e",borderRadius:10,padding:14,marginBottom:20,fontSize:11,color:"#a8dadc",fontFamily:"monospace",lineHeight:1.8,overflowX:"auto",whiteSpace:"pre",userSelect:"all",cursor:"text"}}>{SQL}</div>
         <div style={{marginBottom:12}}><label style={LBL}>Supabase Project URL</label><input style={INP} placeholder="https://xxxxxxxxxxxx.supabase.co" value={url} onChange={e=>setUrl(e.target.value)}/></div>
         <div style={{marginBottom:20}}><label style={LBL}>Supabase Anon / Public Key</label><input style={INP} placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." value={key} onChange={e=>setKey(e.target.value)} type="password"/></div>
         {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,fontWeight:700}}>{"⚠ "+err}</div>}
-        <GoldBtn onClick={save} style={{width:"100%",padding:"13px 0",fontSize:15}}>Connect Database</GoldBtn>
+        <GoldBtn onClick={save} style={{width:"100%",padding:"13px 0",fontSize:15}}>Connect Database →</GoldBtn>
       </div>
     </div>
   );
 }
 
+// ── MAIN APP ──
 export default function App(){
   const [configured,setConfigured]=useState(false);
   const [sb,setSb]=useState(null);
@@ -191,8 +237,11 @@ export default function App(){
   const [intelFilter,setIntelFilter]=useState("All");
   const [editingLead,setEditingLead]=useState(null);
   const [editLF,setEditLF]=useState({});
+  const [editingSale,setEditingSale]=useState(null);
+  const [editSF,setEditSF]=useState({});
   const [showRefund,setShowRefund]=useState(null);
   const [refundAmt,setRefundAmt]=useState("");
+  const [promoteToCustomer,setPromoteToCustomer]=useState(null); // lead id
 
   const blankL={name:"",phone:"",source:"WhatsApp Status",product:"Business Clarity Session",status:"New Inquiry",currency:"₦ NGN",amount:"",date:today(),lastContact:today(),followUpDate:"",auditSent:false,notes:""};
   const blankS={customer:"",product:"Business Clarity Session",amount:"",currency:"₦ NGN",date:today(),payStatus:"Paid",delivery:"Delivered",payMethod:"Bank Transfer – GTBank",payRef:""};
@@ -209,33 +258,39 @@ export default function App(){
   const [cof,setCof]=useState(blankCo);
   const [pf,setPf]=useState(blankP);
 
-  const toast$=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),2800);};
+  const toast$=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
-  function navigateTo(newTab, filter){
-    setTab(newTab);
-    setSearch("");
-    if(newTab==="leads" && filter) setLeadStatusFilter(filter);
+  // All unique names across the whole app for autocomplete
+  const allNames=[...new Set([
+    ...leads.map(l=>l.name),
+    ...sales.map(s=>s.customer),
+    ...customers.map(c=>c.name),
+    ...bookings.map(b=>b.client),
+  ].filter(Boolean))].sort();
+
+  function navigateTo(newTab,filter){
+    setTab(newTab);setSearch("");
+    if(newTab==="leads"&&filter)setLeadStatusFilter(filter);
+    else if(newTab!=="leads")setLeadStatusFilter("All");
   }
+  function bookFromLead(lead){setBf({...blankB,client:lead.name||"",phone:lead.phone||""});setShowBF(true);setTab("bookings");setExpandedLead(null);}
 
-  function bookFromLead(lead){
-    setBf({...blankB,client:lead.name||"",phone:lead.phone||""});
-    setShowBF(true);
-    setTab("bookings");
-    setExpandedLead(null);
+  // Auto-fill phone when name matches existing customer/lead
+  function autofillPhone(name,setForm,form){
+    const match=[...customers,...leads].find(x=>normName(x.name)===normName(name));
+    if(match&&match.phone&&!form.phone)setForm(p=>({...p,phone:match.phone}));
   }
 
   useEffect(()=>{
     function init(){
       try{
-        const u=localStorage.getItem("sb_url");
-        const k=localStorage.getItem("sb_key");
+        const u=localStorage.getItem("sb_url");const k=localStorage.getItem("sb_key");
         if(u&&k){const client=makeSB(u,k);setSb(client);setConfigured(true);}
       }catch(e){}
       setInitLoading(false);
     }
     init();
   },[]);
-
   useEffect(()=>{if(sb&&configured)loadAll(sb);},[sb,configured]);
 
   async function loadAll(client){
@@ -263,23 +318,97 @@ export default function App(){
 
   function handleSetup(url,key){const client=makeSB(url,key);setSb(client);setConfigured(true);}
 
+  // ── LEAD ACTIONS ──
   async function addLead(){
     if(!lf.name||!lf.phone)return toast$("Name and phone required","err");
-    try{const [row]=await sb.post("leads",{data:{...lf,amount:parseFloat(lf.amount)||0}});setLeads([fromRow(row),...leads]);setLf(blankL);setShowLF(false);toast$("Lead added!");}
-    catch(e){toast$(e.message,"err");}
+    try{
+      const [row]=await sb.post("leads",{data:{...lf,amount:parseFloat(lf.amount)||0}});
+      const newLead=fromRow(row);
+      setLeads(prev=>[newLead,...prev]);
+      setLf(blankL);setShowLF(false);toast$("Lead added!");
+      // If status is Paid, prompt to add as customer
+      if(lf.status==="Paid"&&!customers.find(c=>normName(c.name)===normName(lf.name))){
+        setPromoteToCustomer(newLead.id);
+      }
+    }catch(e){toast$(e.message,"err");}
   }
   async function saveEditLead(){
     if(!editLF.name||!editLF.phone)return toast$("Name and phone required","err");
+    const updated={...editLF,amount:parseFloat(editLF.amount)||0};
     try{
-      await sb.patch("leads",editingLead,{data:{...editLF,amount:parseFloat(editLF.amount)||0}});
-      setLeads(leads.map(l=>l.id===editingLead?{...editLF,amount:parseFloat(editLF.amount)||0,id:editingLead}:l));
+      await sb.patch("leads",editingLead,{data:updated});
+      setLeads(prev=>prev.map(l=>l.id===editingLead?{...updated,id:editingLead}:l));
+      // Sync name change across sales
+      const oldLead=leads.find(l=>l.id===editingLead);
+      if(oldLead&&normName(oldLead.name)!==normName(updated.name)){
+        const affectedSales=sales.filter(s=>normName(s.customer)===normName(oldLead.name));
+        for(const s of affectedSales){
+          const upd={...s,customer:updated.name};
+          await sb.patch("sales",s.id,{data:upd});
+          setSales(prev=>prev.map(x=>x.id===s.id?upd:x));
+        }
+      }
       setEditingLead(null);toast$("Lead updated!");
+      if(updated.status==="Paid"&&!customers.find(c=>normName(c.name)===normName(updated.name))){
+        setPromoteToCustomer(editingLead);
+      }
     }catch(e){toast$(e.message,"err");}
   }
+  async function quickLeadStatus(id,status){
+    const lead=leads.find(l=>l.id===id);if(!lead)return;
+    const updated={...lead,status,lastContact:today()};
+    try{
+      await sb.patch("leads",id,{data:updated});
+      setLeads(prev=>prev.map(l=>l.id===id?updated:l));
+      toast$("Moved to "+status);
+      if(status==="Paid"&&!customers.find(c=>normName(c.name)===normName(lead.name))){
+        setPromoteToCustomer(id);
+      }
+    }catch(e){toast$(e.message,"err");}
+  }
+  async function markAuditSent(id){
+    const lead=leads.find(l=>l.id===id);if(!lead)return;
+    const updated={...lead,auditSent:true};
+    try{await sb.patch("leads",id,{data:updated});setLeads(prev=>prev.map(l=>l.id===id?updated:l));}
+    catch(e){toast$(e.message,"err");}
+  }
+  async function promoteLeadToCustomer(leadId){
+    const lead=leads.find(l=>l.id===leadId);if(!lead)return;
+    if(customers.find(c=>normName(c.name)===normName(lead.name))){toast$("Already in customers");setPromoteToCustomer(null);return;}
+    const newCust={name:lead.name,phone:lead.phone||"",city:"Abuja",notes:"Added from lead – "+lead.product,totalNGN:toNGN(lead.amount||0,lead.currency||"₦ NGN"),purchases:lead.amount>0?1:0,lastPurchase:lead.amount>0?lead.date:"-"};
+    try{
+      const [row]=await sb.post("customers",{data:newCust});
+      setCustomers(prev=>[fromRow(row),...prev]);
+      setPromoteToCustomer(null);toast$("Added to Customers ✓");
+    }catch(e){toast$(e.message,"err");}
+  }
+
+  // ── SALE ACTIONS ──
   async function addSale(){
     if(!sf.customer||!sf.amount)return toast$("Customer and amount required","err");
-    try{const [row]=await sb.post("sales",{data:{...sf,amount:parseFloat(sf.amount)}});setSales([fromRow(row),...sales]);setSf(blankS);setShowSF(false);toast$("Sale recorded!");}
-    catch(e){toast$(e.message,"err");}
+    try{
+      const [row]=await sb.post("sales",{data:{...sf,amount:parseFloat(sf.amount)}});
+      const newSale=fromRow(row);
+      setSales(prev=>[newSale,...prev]);
+      setSf(blankS);setShowSF(false);toast$("Sale recorded!");
+      // Update customer total if exists
+      const cust=customers.find(c=>normName(c.name)===normName(sf.customer));
+      if(cust&&sf.payStatus==="Paid"){
+        const amt=toNGN(parseFloat(sf.amount),sf.currency);
+        const upd={...cust,totalNGN:(cust.totalNGN||0)+amt,purchases:(cust.purchases||0)+1,lastPurchase:sf.date};
+        await sb.patch("customers",cust.id,{data:upd});
+        setCustomers(prev=>prev.map(c=>c.id===cust.id?upd:c));
+      }
+    }catch(e){toast$(e.message,"err");}
+  }
+  async function saveEditSale(){
+    if(!editSF.customer||!editSF.amount)return toast$("Customer and amount required","err");
+    const updated={...editSF,amount:parseFloat(editSF.amount)};
+    try{
+      await sb.patch("sales",editingSale,{data:updated});
+      setSales(prev=>prev.map(s=>s.id===editingSale?{...updated,id:editingSale}:s));
+      setEditingSale(null);toast$("Sale updated!");
+    }catch(e){toast$(e.message,"err");}
   }
   async function issueRefund(saleId){
     const sale=sales.find(s=>s.id===saleId);if(!sale)return;
@@ -287,59 +416,73 @@ export default function App(){
     const updated={...sale,refunded:true,refundAmount:amt,refundDate:today(),payStatus:"Refunded"};
     try{
       await sb.patch("sales",saleId,{data:updated});
-      setSales(sales.map(s=>s.id===saleId?updated:s));
+      setSales(prev=>prev.map(s=>s.id===saleId?updated:s));
       setShowRefund(null);setRefundAmt("");toast$("Refund recorded");
     }catch(e){toast$(e.message,"err");}
   }
+
+  // ── CUSTOMER ACTIONS ──
   async function addCustomer(){
     if(!cf.name||!cf.phone)return toast$("Name and phone required","err");
-    try{const [row]=await sb.post("customers",{data:{...cf,totalNGN:0,purchases:0,lastPurchase:"-"}});setCustomers([fromRow(row),...customers]);setCf(blankC);setShowCF(false);toast$("Customer added!");}
-    catch(e){toast$(e.message,"err");}
+    if(customers.find(c=>normName(c.name)===normName(cf.name)))return toast$("Customer already exists","err");
+    try{
+      const [row]=await sb.post("customers",{data:{...cf,totalNGN:0,purchases:0,lastPurchase:"-"}});
+      setCustomers(prev=>[fromRow(row),...prev]);
+      setCf(blankC);setShowCF(false);toast$("Customer added!");
+    }catch(e){toast$(e.message,"err");}
   }
+
+  // ── BOOKING ACTIONS ──
   async function addBooking(){
     if(!bf.client||!bf.date)return toast$("Client and date required","err");
     const clash=bookings.find(b=>b.date===bf.date&&b.time===bf.time&&b.status!=="Cancelled");
-    if(clash)return toast$("Clash with "+clash.client+" at "+clash.time,"err");
-    try{const [row]=await sb.post("bookings",{data:bf});setBookings([fromRow(row),...bookings]);setBf(blankB);setShowBF(false);toast$("Booking saved!");}
+    if(clash)return toast$("⚠ Clash with "+clash.client+" at "+clash.time,"err");
+    try{
+      const [row]=await sb.post("bookings",{data:bf});
+      setBookings(prev=>[fromRow(row),...prev]);
+      setBf(blankB);setShowBF(false);toast$("Booking saved!");
+      // Auto-update lead status to Session Booked if found
+      const lead=leads.find(l=>normName(l.name)===normName(bf.client)&&!["Paid","Lost","Session Booked"].includes(l.status));
+      if(lead){
+        const upd={...lead,status:"Session Booked",lastContact:today()};
+        await sb.patch("leads",lead.id,{data:upd});
+        setLeads(prev=>prev.map(l=>l.id===lead.id?upd:l));
+        toast$("Booking saved! Lead updated to Session Booked ✓");
+      }
+    }catch(e){toast$(e.message,"err");}
+  }
+  async function updateBookingStatus(id,status){
+    const b=bookings.find(b=>b.id===id);if(!b)return;
+    const updated={...b,status};
+    try{await sb.patch("bookings",id,{data:updated});setBookings(prev=>prev.map(x=>x.id===id?updated:x));}
     catch(e){toast$(e.message,"err");}
   }
+
+  // ── INTEL ACTIONS ──
   async function addIntel(){
     if(!inf.client)return toast$("Client name required","err");
-    try{const [row]=await sb.post("intel",{data:inf});setIntel([fromRow(row),...intel]);setInf(blankI);setShowIF(false);toast$("Notes saved!");}
+    try{const [row]=await sb.post("intel",{data:inf});setIntel(prev=>[fromRow(row),...prev]);setInf(blankI);setShowIF(false);toast$("Notes saved!");}
     catch(e){toast$(e.message,"err");}
   }
+
+  // ── COHORT ACTIONS ──
   async function addCohort(){
     if(!cof.name)return toast$("Name required","err");
-    try{const [row]=await sb.post("cohorts",{data:{...cof,enrolled:parseInt(cof.enrolled)||0,revenue:0}});setCohorts([fromRow(row),...cohorts]);setCof(blankCo);setShowCoF(false);toast$("Cohort added!");}
+    try{const [row]=await sb.post("cohorts",{data:{...cof,enrolled:parseInt(cof.enrolled)||0,revenue:0}});setCohorts(prev=>[fromRow(row),...prev]);setCof(blankCo);setShowCoF(false);toast$("Cohort added!");}
     catch(e){toast$(e.message,"err");}
   }
+
+  // ── PROCUREMENT ACTIONS ──
   async function addProcurement(){
     if(!pf.name||!pf.product)return toast$("Name and product required","err");
-    try{const [row]=await sb.post("procurement",{data:pf});setProcurement([fromRow(row),...procurement]);setPf(blankP);setShowPF(false);toast$("Inquiry saved!");}
+    try{const [row]=await sb.post("procurement",{data:pf});setProcurement(prev=>[fromRow(row),...prev]);setPf(blankP);setShowPF(false);toast$("Inquiry saved!");}
     catch(e){toast$(e.message,"err");}
   }
-  async function quickLeadStatus(id,status){
-    const lead=leads.find(l=>l.id===id);if(!lead)return;
-    const updated={...lead,status,lastContact:today()};
-    try{await sb.patch("leads",id,{data:updated});setLeads(leads.map(l=>l.id===id?updated:l));toast$("Moved to "+status);}
-    catch(e){toast$(e.message,"err");}
-  }
-  async function markAuditSent(id){
-    const lead=leads.find(l=>l.id===id);if(!lead)return;
-    const updated={...lead,auditSent:true};
-    try{await sb.patch("leads",id,{data:updated});setLeads(leads.map(l=>l.id===id?updated:l));}
-    catch(e){toast$(e.message,"err");}
-  }
+
   async function toggleTask(id){
     const task=tasks.find(t=>t.id===id);if(!task)return;
     const updated={...task,done:!task.done};
-    try{await sb.patch("tasks",id,{data:{period:updated.period,goal:updated.goal,done:updated.done,priority:updated.priority}});setTasks(tasks.map(t=>t.id===id?updated:t));}
-    catch(e){toast$(e.message,"err");}
-  }
-  async function updateBookingStatus(id,status){
-    const booking=bookings.find(b=>b.id===id);if(!booking)return;
-    const updated={...booking,status};
-    try{await sb.patch("bookings",id,{data:updated});setBookings(bookings.map(b=>b.id===id?updated:b));}
+    try{await sb.patch("tasks",id,{data:{period:updated.period,goal:updated.goal,done:updated.done,priority:updated.priority}});setTasks(prev=>prev.map(t=>t.id===id?updated:t));}
     catch(e){toast$(e.message,"err");}
   }
   async function delItem(table,id,setter,list,extra){
@@ -348,16 +491,16 @@ export default function App(){
   }
   function toggleTag(tag){setInf(p=>({...p,tags:p.tags.includes(tag)?p.tags.filter(t=>t!==tag):[...p.tags,tag]}));}
 
+  // ── COMPUTED ──
   const totalNGN=sales.filter(s=>s.payStatus==="Paid"&&!s.refunded).reduce((a,s)=>a+toNGN(s.amount,s.currency),0);
   const goalPct=Math.min((totalNGN/MONTHLY_GOAL)*100,100);
   const overdueLeads=leads.filter(l=>isOverdue(l.followUpDate)&&!["Paid","Lost"].includes(l.status));
   const todayBookings=bookings.filter(b=>b.date===today()&&b.status==="Confirmed");
   const hotLeads=leads.filter(l=>["New Inquiry","Audit Sent","Following Up"].includes(l.status));
-  const pendingBookingLeads=leads.filter(l=>l.status==="Session Booked"&&!bookings.find(b=>b.client===l.name&&b.status!=="Cancelled"));
+  const pendingBookingLeads=leads.filter(l=>l.status==="Session Booked"&&!bookings.find(b=>normName(b.client)===normName(l.name)&&b.status!=="Cancelled"));
   const taskPeriods=[...new Set(tasks.map(t=>t.period))];
   const filteredIntel=intelFilter==="All"?intel:intel.filter(i=>i.tags&&i.tags.includes(intelFilter));
   const q=search.toLowerCase();
-
   const statusFiltered=leadStatusFilter==="All"?leads
     :leadStatusFilter==="active"?leads.filter(l=>["New Inquiry","Audit Sent","Following Up"].includes(l.status))
     :leadStatusFilter==="overdue"?leads.filter(l=>isOverdue(l.followUpDate)&&!["Paid","Lost"].includes(l.status))
@@ -366,13 +509,16 @@ export default function App(){
   const fSales=sales.filter(s=>!q||s.customer&&s.customer.toLowerCase().includes(q));
   const fCustomers=customers.filter(c=>!q||[c.name,c.phone,c.city].some(x=>x&&x.toLowerCase().includes(q)));
   const fProcurement=procurement.filter(p=>!q||[p.name,p.product,p.notes].some(x=>x&&x.toLowerCase().includes(q)));
-
   const refundSale=sales.find(s=>s.id===showRefund);
+  const promoteLead=leads.find(l=>l.id===promoteToCustomer);
 
   if(initLoading)return(
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif"}}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&family=Nunito:wght@700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}"}</style>
-      <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,color:C.gold}}>Hafsat Sabir Co...</div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,color:C.gold,fontWeight:700}}>SHS</div>
+        <div style={{fontSize:11,color:C.textMuted,letterSpacing:"0.1em",textTransform:"uppercase"}}>Loading...</div>
+      </div>
     </div>
   );
   if(!configured)return <SetupScreen onSave={handleSetup}/>;
@@ -383,22 +529,31 @@ export default function App(){
     <div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Nunito',sans-serif",color:C.text}}>
       <style>{CSS}</style>
 
-      {/* Customer datalist for autocomplete */}
-      <datalist id="cust-names">{customers.map(c=><option key={c.id} value={c.name}/>)}</datalist>
+      {/* PROMOTE TO CUSTOMER MODAL */}
+      {promoteToCustomer&&promoteLead&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:360,width:"100%"}} className="pop">
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,marginBottom:8,color:C.green}}>🎉 New Paid Client!</div>
+            <div style={{fontSize:13,color:C.textMid,marginBottom:20,lineHeight:1.7}}>
+              <strong>{promoteLead.name}</strong> has been marked as Paid. Add them to your Customer Database to track their purchase history?
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <GoldBtn onClick={()=>promoteLeadToCustomer(promoteToCustomer)}>Yes, Add to Customers</GoldBtn>
+              <GhostBtn onClick={()=>setPromoteToCustomer(null)}>Skip</GhostBtn>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Refund Modal */}
+      {/* REFUND MODAL */}
       {showRefund&&refundSale&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:C.card,borderRadius:16,padding:24,maxWidth:380,width:"100%"}} className="pop">
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,marginBottom:4,color:C.text}}>Issue Refund</div>
-            <div style={{fontSize:12,color:C.textMuted,marginBottom:16}}>
-              For <strong>{refundSale.customer}</strong> — {fmtAmt(refundSale.amount,refundSale.currency)}
-            </div>
-            <F label="Refund Amount (leave blank = full refund)">
-              <Inp type="number" placeholder={""+refundSale.amount} value={refundAmt} onChange={e=>setRefundAmt(e.target.value)}/>
-            </F>
+            <div style={{fontSize:12,color:C.textMuted,marginBottom:16}}>For <strong>{refundSale.customer}</strong> — {fmtAmt(refundSale.amount,refundSale.currency)}</div>
+            <F label="Refund Amount (leave blank = full refund)"><Inp type="number" placeholder={""+refundSale.amount} value={refundAmt} onChange={e=>setRefundAmt(e.target.value)}/></F>
             <div style={{display:"flex",gap:10,marginTop:8}}>
-              <button onClick={()=>issueRefund(showRefund)} style={{background:C.red,color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Refund</button>
+              <RedBtn onClick={()=>issueRefund(showRefund)}>Confirm Refund</RedBtn>
               <GhostBtn onClick={()=>{setShowRefund(null);setRefundAmt("");}}>Cancel</GhostBtn>
             </div>
           </div>
@@ -406,25 +561,25 @@ export default function App(){
       )}
 
       {loading&&<div style={{position:"fixed",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,"+C.gold+","+C.goldL+")",zIndex:9999}}/>}
-      {toast&&<div style={{position:"fixed",top:16,right:16,background:toast.type==="err"?C.red:C.green,color:"#fff",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,0.18)"}} className="pop">{toast.msg}</div>}
+      {toast&&<div style={{position:"fixed",top:16,right:16,background:toast.type==="err"?C.red:C.green,color:"#fff",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,0.18)",maxWidth:280}} className="pop">{toast.msg}</div>}
 
-      {/* Header */}
-      <div style={{background:C.card,borderBottom:"1px solid "+C.border,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50,boxShadow:"0 1px 8px rgba(0,0,0,0.05)"}}>
+      {/* HEADER */}
+      <div style={{background:C.card,borderBottom:"1px solid "+C.border,padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50,boxShadow:"0 1px 8px rgba(0,0,0,0.05)"}}>
         <div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold,letterSpacing:"-0.01em"}}>Hafsat Sabir Co.</div>
-          <div style={{fontSize:10,color:C.textMuted,letterSpacing:"0.12em",textTransform:"uppercase"}}>Operations Hub</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:C.gold,letterSpacing:"-0.01em",lineHeight:1}}>SHS</div>
+          <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginTop:1}}>Business Clarity & Growth Studio</div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          {overdueLeads.length>0&&<div onClick={()=>navigateTo("leads","overdue")} style={{background:C.redBg,color:C.red,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{"⚠ "+overdueLeads.length+" overdue"}</div>}
-          <div style={{background:C.goldBg,border:"1px solid "+C.goldBorder,borderRadius:20,padding:"4px 14px",fontSize:12,color:C.gold,fontWeight:700}}>{fmtNGN(totalNGN)+" this month"}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {overdueLeads.length>0&&<div onClick={()=>navigateTo("leads","overdue")} style={{background:C.redBg,color:C.red,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{"⚠ "+overdueLeads.length}</div>}
+          <div style={{background:C.goldBg,border:"1px solid "+C.goldBorder,borderRadius:20,padding:"4px 14px",fontSize:12,color:C.gold,fontWeight:700}}>{fmtNGN(totalNGN)}</div>
           <button onClick={()=>{localStorage.removeItem("sb_url");localStorage.removeItem("sb_key");setConfigured(false);setSb(null);}} style={{background:"transparent",border:"1px solid "+C.border,borderRadius:8,padding:"4px 10px",fontSize:10,color:C.textDim,cursor:"pointer",fontFamily:"inherit"}}>⚙</button>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* TABS */}
       <div style={{background:C.card,borderBottom:"1px solid "+C.border,display:"flex",overflowX:"auto",padding:"0 8px"}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>{setTab(t.id);setSearch("");if(t.id!=="leads")setLeadStatusFilter("All");}} style={{background:"transparent",border:"none",borderBottom:tab===t.id?"2px solid "+C.gold:"2px solid transparent",color:tab===t.id?C.gold:C.textMuted,padding:"11px 14px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}>
+          <button key={t.id} onClick={()=>{setTab(t.id);setSearch("");if(t.id!=="leads")setLeadStatusFilter("All");}} style={{background:"transparent",border:"none",borderBottom:tab===t.id?"2px solid "+C.gold:"2px solid transparent",color:tab===t.id?C.gold:C.textMuted,padding:"11px 12px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",transition:"all 0.2s",display:"flex",alignItems:"center",gap:4}}>
             <span>{t.icon}</span>{t.label}
           </button>
         ))}
@@ -432,17 +587,17 @@ export default function App(){
 
       <div style={{padding:"20px 16px",maxWidth:900,margin:"0 auto"}} className="fade">
 
-        {/* OVERVIEW */}
+        {/* ══ OVERVIEW ══ */}
         {tab==="overview"&&(
           <div>
             <div style={{background:"linear-gradient(145deg,#2C1A08,#3D2510)",borderRadius:18,padding:"22px 24px",marginBottom:16,color:"#FAF0E0"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                 <div>
-                  <div style={{fontSize:11,color:"rgba(250,240,220,0.5)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Monthly Revenue Goal · July Target</div>
-                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:"#E8C97A"}}>{fmtNGN(totalNGN)+" "}<span style={{fontSize:14,color:"rgba(250,240,220,0.35)"}}>/ ₦3,000,000</span></div>
+                  <div style={{fontSize:11,color:"rgba(250,240,220,0.5)",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>Monthly Revenue · July Target</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:700,color:"#E8C97A"}}>{fmtNGN(totalNGN)} <span style={{fontSize:13,color:"rgba(250,240,220,0.35)"}}>/ ₦3,000,000</span></div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,fontWeight:700,color:"#E8C97A"}}>{goalPct.toFixed(0)+"%"}</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:34,fontWeight:700,color:"#E8C97A"}}>{goalPct.toFixed(0)+"%"}</div>
                   <div style={{fontSize:10,color:"rgba(250,240,220,0.4)"}}>of target</div>
                 </div>
               </div>
@@ -450,24 +605,24 @@ export default function App(){
                 <div style={{width:goalPct+"%",background:"linear-gradient(90deg,"+C.gold+","+C.goldL+")",height:"100%",borderRadius:100,transition:"width 1s ease"}}/>
               </div>
               <div style={{marginTop:8,fontSize:11,color:"rgba(250,240,220,0.4)"}}>
-                {fmtNGN(MONTHLY_GOAL-totalNGN)+" remaining · ¥"+Math.round((MONTHLY_GOAL-totalNGN)/210).toLocaleString()+" RMB · $"+Math.round((MONTHLY_GOAL-totalNGN)/1550).toLocaleString()+" USD"}
+                {fmtNGN(MONTHLY_GOAL-totalNGN)+" remaining · ¥"+Math.round((MONTHLY_GOAL-totalNGN)/210).toLocaleString()+" · $"+Math.round((MONTHLY_GOAL-totalNGN)/1550).toLocaleString()}
               </div>
             </div>
 
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:16}}>
               {[
                 {label:"Active Leads",value:hotLeads.length,color:C.orange,bg:C.orangeBg,icon:"🔥",action:()=>navigateTo("leads","active")},
                 {label:"Paid Clients",value:leads.filter(l=>l.status==="Paid").length,color:C.green,bg:C.greenBg,icon:"💰",action:()=>navigateTo("leads","Paid")},
                 {label:"Customers",value:customers.length,color:C.blue,bg:C.blueBg,icon:"👥",action:()=>navigateTo("customers")},
-                {label:"Sessions Today",value:todayBookings.length,color:C.purple,bg:C.purpleBg,icon:"📅",action:()=>navigateTo("bookings")},
-                {label:"Overdue Followups",value:overdueLeads.length,color:C.red,bg:C.redBg,icon:"⚠",action:()=>navigateTo("leads","overdue")},
+                {label:"Today Sessions",value:todayBookings.length,color:C.purple,bg:C.purpleBg,icon:"📅",action:()=>navigateTo("bookings")},
+                {label:"Overdue",value:overdueLeads.length,color:C.red,bg:C.redBg,icon:"⚠",action:()=>navigateTo("leads","overdue")},
                 {label:"Procurement",value:procurement.length,color:C.teal,bg:C.tealBg,icon:"📦",action:()=>navigateTo("procurement")},
               ].map((k,i)=>(
-                <div key={i} className="kpi-card" onClick={k.action} style={{background:k.bg,border:"1px solid "+C.border,borderRadius:12,padding:"14px 14px",textAlign:"center"}}>
+                <div key={i} className="kpi-card" onClick={k.action} style={{background:k.bg,border:"1px solid "+C.border,borderRadius:12,padding:"14px 10px",textAlign:"center"}}>
                   <div style={{fontSize:20,marginBottom:4}}>{k.icon}</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:k.color}}>{k.value}</div>
-                  <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{k.label}</div>
-                  <div style={{fontSize:9,color:k.color,marginTop:3,opacity:0.6}}>tap to view →</div>
+                  <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700}}>{k.label}</div>
+                  <div style={{fontSize:9,color:k.color,marginTop:3,opacity:0.6}}>tap →</div>
                 </div>
               ))}
             </div>
@@ -491,7 +646,7 @@ export default function App(){
                     {todayBookings.map(b=>(
                       <div key={b.id} style={{borderBottom:"1px solid rgba(45,122,79,0.1)",padding:"7px 0"}}>
                         <div style={{fontSize:13,fontWeight:700}}>{b.client}</div>
-                        <div style={{fontSize:11,color:C.green}}>{b.session+" · "+b.time+" · "+b.duration+" mins"}</div>
+                        <div style={{fontSize:11,color:C.green}}>{b.session+" · "+b.time+" · "+b.duration+"m"}</div>
                       </div>
                     ))}
                   </Card>
@@ -515,7 +670,7 @@ export default function App(){
                 {sales.slice(0,5).map(s=>(
                   <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
                     <div><div style={{fontSize:13,fontWeight:700}}>{s.customer}</div><div style={{fontSize:11,color:C.textMuted}}>{s.product}</div></div>
-                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,color:s.refunded?C.red:C.green}}>{(s.refunded?"↩ ":"")+fmtAmt(s.amount,s.currency)}</div>
+                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,fontWeight:700,color:s.refunded?C.red:C.green}}>{(s.refunded?"↩ ":"")+fmtAmt(s.amount,s.currency)}</div>
                   </div>
                 ))}
                 {sales.length===0&&<div style={{fontSize:12,color:C.textDim,textAlign:"center",padding:16}}>No sales yet</div>}
@@ -524,16 +679,18 @@ export default function App(){
           </div>
         )}
 
-        {/* LEADS */}
+        {/* ══ LEADS ══ */}
         {tab==="leads"&&(
           <div>
-            <SectionHead title="Lead Tracker" sub={leads.length+" total · "+hotLeads.length+" active · "+leads.filter(l=>l.status==="Paid").length+" converted"} action={<GoldBtn onClick={()=>setShowLF(!showLF)}>+ Add Lead</GoldBtn>}/>
+            <SectionHead title="Lead Tracker" sub={leads.length+" total · "+hotLeads.length+" active · "+leads.filter(l=>l.status==="Paid").length+" paid"} action={<GoldBtn onClick={()=>setShowLF(!showLF)}>+ Add Lead</GoldBtn>}/>
 
             {showLF&&(
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Lead</div>
                 <Row>
-                  <F label="Full Name *"><Inp placeholder="Aisha Musa" value={lf.name} onChange={e=>setLf({...lf,name:e.target.value})}/></F>
+                  <F label="Full Name *">
+                    <NameInput value={lf.name} onChange={v=>{setLf(p=>({...p,name:v}));const m=[...customers,...leads].find(x=>normName(x.name)===normName(v));if(m?.phone&&!lf.phone)setLf(p=>({...p,phone:m.phone}));}} list={allNames} placeholder="Aisha Musa"/>
+                  </F>
                   <F label="Phone *"><PhoneRow value={lf.phone} onChange={e=>setLf({...lf,phone:e.target.value})} onPickContact={()=>pickContact(c=>setLf(p=>({...p,name:c.name||p.name,phone:c.phone||p.phone})),toast$)}/></F>
                 </Row>
                 <Row><F label="Source"><Sel value={lf.source} onChange={e=>setLf({...lf,source:e.target.value})}>{SOURCES.map(s=><option key={s}>{s}</option>)}</Sel></F><F label="Product"><Sel value={lf.product} onChange={e=>setLf({...lf,product:e.target.value})}>{PRODUCTS.map(p=><option key={p}>{p}</option>)}</Sel></F></Row>
@@ -550,7 +707,6 @@ export default function App(){
             )}
 
             <input style={{...INP,marginBottom:12}} placeholder="Search by name, phone, product..." value={search} onChange={e=>setSearch(e.target.value)}/>
-
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
               {["All",...LEAD_STATUSES].map(s=>{
                 const count=s==="All"?leads.length:leads.filter(l=>l.status===s).length;
@@ -559,8 +715,7 @@ export default function App(){
                 return <button key={s} onClick={()=>setLeadStatusFilter(s)} style={{background:active?(sty?sty.bg:C.goldBg):C.bg2,color:active?(sty?sty.color:C.gold):C.textMuted,border:"2px solid "+(active?(sty?sty.color:C.gold):"transparent"),borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{s+" ("+count+")"}</button>;
               })}
             </div>
-
-            {leadStatusFilter!=="All"&&<div style={{fontSize:11,color:C.textMuted,marginBottom:10,fontStyle:"italic"}}>{"Showing: "+leadStatusFilter+" · "}<span style={{color:C.gold,cursor:"pointer"}} onClick={()=>setLeadStatusFilter("All")}>Clear ×</span></div>}
+            {leadStatusFilter!=="All"&&<div style={{fontSize:11,color:C.textMuted,marginBottom:10,fontStyle:"italic"}}>Showing: {leadStatusFilter} · <span style={{color:C.gold,cursor:"pointer"}} onClick={()=>setLeadStatusFilter("All")}>Clear ×</span></div>}
 
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {fLeads.map(lead=>{
@@ -576,20 +731,20 @@ export default function App(){
                         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                           <span style={{fontWeight:800,fontSize:14}}>{lead.name}</span>
                           <Badge label={lead.status}/>
-                          {lead.auditSent&&<span style={{background:C.tealBg,color:C.teal,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>📋 Audit Sent</span>}
+                          {lead.auditSent&&<span style={{background:C.tealBg,color:C.teal,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>📋 Audit</span>}
                           {overdue&&<span style={{background:C.redBg,color:C.red,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>⚠ Overdue</span>}
-                          {lead.status==="Session Booked"&&!bookings.find(b=>b.client===lead.name)&&<span style={{background:C.purpleBg,color:C.purple,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>📅 Needs Booking</span>}
+                          {lead.status==="Session Booked"&&!bookings.find(b=>normName(b.client)===normName(lead.name))&&<span style={{background:C.purpleBg,color:C.purple,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>📅 Needs Booking</span>}
                         </div>
                         <div style={{fontSize:12,color:C.textMuted,marginTop:2}}>{lead.phone+" · "+lead.source+" · "+lead.product}</div>
                         {lead.followUpDate&&<div style={{fontSize:11,color:overdue?C.red:C.textDim,marginTop:1}}>{"Follow up: "+lead.followUpDate}</div>}
                       </div>
-                      {lead.amount>0&&<div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,color:C.green,flexShrink:0}}>{fmtAmt(lead.amount,lead.currency||"₦ NGN")}</div>}
+                      {lead.amount>0&&<div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,fontWeight:700,color:C.green,flexShrink:0}}>{fmtAmt(lead.amount,lead.currency)}</div>}
                       <span style={{color:C.textDim,fontSize:14,flexShrink:0}}>{exp?"▲":"▼"}</span>
                     </div>
 
                     {exp&&!isEditing&&(
                       <div style={{borderTop:"1px solid "+C.border,padding:"14px 16px",background:C.bg}}>
-                        {lead.notes&&<div style={{fontSize:13,color:C.textMid,fontStyle:"italic",marginBottom:12}}>{"\""+lead.notes+"\""}</div>}
+                        {lead.notes&&<div style={{fontSize:13,color:C.textMid,fontStyle:"italic",marginBottom:12}}>{'"'+lead.notes+'"'}</div>}
                         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
                           {LEAD_STATUSES.filter(s=>s!==lead.status).map(s=>{
                             const ss=LEAD_STYLE[s]||{};
@@ -597,11 +752,14 @@ export default function App(){
                           })}
                           <button className="qbtn" onClick={()=>markAuditSent(lead.id)} style={{background:C.tealBg,color:C.teal}}>✓ Audit Sent</button>
                           {lead.status==="Session Booked"&&(
-                            <button className="qbtn" onClick={()=>bookFromLead(lead)} style={{background:C.purple,color:"#fff",fontWeight:800}}>📅 Book Session Now</button>
+                            <button className="qbtn" onClick={()=>bookFromLead(lead)} style={{background:C.purple,color:"#fff",fontWeight:800}}>📅 Book Session</button>
+                          )}
+                          {lead.status==="Paid"&&!customers.find(c=>normName(c.name)===normName(lead.name))&&(
+                            <button className="qbtn" onClick={()=>setPromoteToCustomer(lead.id)} style={{background:C.greenBg,color:C.green}}>👥 Add to Customers</button>
                           )}
                         </div>
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                          <button className="qbtn" onClick={()=>{setEditingLead(lead.id);setEditLF({...lead});}} style={{background:C.goldBg,color:C.gold,padding:"6px 14px",fontSize:12}}>✏️ Edit Lead</button>
+                          <button className="qbtn" onClick={()=>{setEditingLead(lead.id);setEditLF({...lead});}} style={{background:C.goldBg,color:C.gold,padding:"6px 14px",fontSize:12}}>✏️ Edit</button>
                           <button className="del-btn" onClick={()=>delItem("leads",lead.id,setLeads,leads,()=>setExpandedLead(null))}>×</button>
                         </div>
                       </div>
@@ -609,9 +767,9 @@ export default function App(){
 
                     {isEditing&&(
                       <div style={{borderTop:"1px solid "+C.goldBorder,padding:"16px",background:C.goldBg}} className="pop">
-                        <div style={{fontWeight:800,marginBottom:12,color:C.gold}}>{"Edit Lead — "+lead.name}</div>
+                        <div style={{fontWeight:800,marginBottom:12,color:C.gold}}>Edit Lead — {lead.name}</div>
                         <Row>
-                          <F label="Full Name *"><Inp value={editLF.name||""} onChange={e=>setEditLF({...editLF,name:e.target.value})}/></F>
+                          <F label="Full Name *"><NameInput value={editLF.name||""} onChange={v=>setEditLF(p=>({...p,name:v}))} list={allNames}/></F>
                           <F label="Phone *"><PhoneRow value={editLF.phone||""} onChange={e=>setEditLF({...editLF,phone:e.target.value})} onPickContact={()=>pickContact(c=>setEditLF(p=>({...p,name:c.name||p.name,phone:c.phone||p.phone})),toast$)}/></F>
                         </Row>
                         <Row><F label="Source"><Sel value={editLF.source||""} onChange={e=>setEditLF({...editLF,source:e.target.value})}>{SOURCES.map(s=><option key={s}>{s}</option>)}</Sel></F><F label="Product"><Sel value={editLF.product||""} onChange={e=>setEditLF({...editLF,product:e.target.value})}>{PRODUCTS.map(p=><option key={p}>{p}</option>)}</Sel></F></Row>
@@ -623,10 +781,7 @@ export default function App(){
                             <input type="checkbox" checked={editLF.auditSent||false} onChange={e=>setEditLF({...editLF,auditSent:e.target.checked})} style={{width:16,height:16,accentColor:C.gold}}/>Audit PDF Sent
                           </label>
                         </div>
-                        <div style={{display:"flex",gap:10}}>
-                          <GoldBtn onClick={saveEditLead}>Save Changes</GoldBtn>
-                          <GhostBtn onClick={()=>setEditingLead(null)}>Cancel</GhostBtn>
-                        </div>
+                        <div style={{display:"flex",gap:10}}><GoldBtn onClick={saveEditLead}>Save Changes</GoldBtn><GhostBtn onClick={()=>setEditingLead(null)}>Cancel</GhostBtn></div>
                       </div>
                     )}
                   </div>
@@ -637,32 +792,21 @@ export default function App(){
           </div>
         )}
 
-        {/* SALES */}
+        {/* ══ SALES ══ */}
         {tab==="sales"&&(
           <div>
-            <SectionHead title="Sales & Delivery"
-              sub={fmtNGN(totalNGN)+" confirmed · "+sales.length+" transactions · "+sales.filter(s=>s.refunded).length+" refunded"}
-              action={<GoldBtn onClick={()=>setShowSF(!showSF)}>+ Record Sale</GoldBtn>}/>
+            <SectionHead title="Sales & Delivery" sub={fmtNGN(totalNGN)+" confirmed · "+sales.length+" transactions · "+sales.filter(s=>s.refunded).length+" refunded"} action={<GoldBtn onClick={()=>setShowSF(!showSF)}>+ Record Sale</GoldBtn>}/>
 
             {showSF&&(
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Sale</div>
                 <Row>
-                  <F label="Customer *"><input style={INP} list="cust-names" placeholder="Start typing name..." value={sf.customer} onChange={e=>setSf({...sf,customer:e.target.value})}/></F>
+                  <F label="Customer *"><NameInput value={sf.customer} onChange={v=>{setSf(p=>({...p,customer:v}));}} list={allNames} placeholder="Start typing name..."/></F>
                   <F label="Product"><Sel value={sf.product} onChange={e=>setSf({...sf,product:e.target.value})}>{PRODUCTS.map(p=><option key={p}>{p}</option>)}</Sel></F>
                 </Row>
-                <Row>
-                  <F label="Amount *"><Inp type="number" placeholder="50000" value={sf.amount} onChange={e=>setSf({...sf,amount:e.target.value})}/></F>
-                  <F label="Currency"><Sel value={sf.currency} onChange={e=>setSf({...sf,currency:e.target.value})}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</Sel></F>
-                </Row>
-                <Row>
-                  <F label="Payment Method"><Sel value={sf.payMethod||""} onChange={e=>setSf({...sf,payMethod:e.target.value})}>{PAYMENT_METHODS.map(m=><option key={m}>{m}</option>)}</Sel></F>
-                  <F label="Payment Reference / Teller No."><Inp placeholder="REF123456" value={sf.payRef||""} onChange={e=>setSf({...sf,payRef:e.target.value})}/></F>
-                </Row>
-                <Row>
-                  <F label="Date"><Inp type="date" value={sf.date} onChange={e=>setSf({...sf,date:e.target.value})}/></F>
-                  <F label="Payment Status"><Sel value={sf.payStatus} onChange={e=>setSf({...sf,payStatus:e.target.value})}>{["Paid","Pending","Overdue"].map(s=><option key={s}>{s}</option>)}</Sel></F>
-                </Row>
+                <Row><F label="Amount *"><Inp type="number" placeholder="50000" value={sf.amount} onChange={e=>setSf({...sf,amount:e.target.value})}/></F><F label="Currency"><Sel value={sf.currency} onChange={e=>setSf({...sf,currency:e.target.value})}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</Sel></F></Row>
+                <Row><F label="Payment Method"><Sel value={sf.payMethod||""} onChange={e=>setSf({...sf,payMethod:e.target.value})}>{PAYMENT_METHODS.map(m=><option key={m}>{m}</option>)}</Sel></F><F label="Payment Ref / Teller No."><Inp placeholder="REF123456" value={sf.payRef||""} onChange={e=>setSf({...sf,payRef:e.target.value})}/></F></Row>
+                <Row><F label="Date"><Inp type="date" value={sf.date} onChange={e=>setSf({...sf,date:e.target.value})}/></F><F label="Payment Status"><Sel value={sf.payStatus} onChange={e=>setSf({...sf,payStatus:e.target.value})}>{["Paid","Pending","Overdue"].map(s=><option key={s}>{s}</option>)}</Sel></F></Row>
                 <F label="Delivery"><Sel value={sf.delivery} onChange={e=>setSf({...sf,delivery:e.target.value})}>{["Delivered","Scheduled","Pending","Not Sent"].map(s=><option key={s}>{s}</option>)}</Sel></F>
                 <div style={{display:"flex",gap:10}}><GoldBtn onClick={addSale}>Save Sale</GoldBtn><GhostBtn onClick={()=>setShowSF(false)}>Cancel</GhostBtn></div>
               </Card>
@@ -673,9 +817,10 @@ export default function App(){
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {fSales.map(s=>{
                 const exp=expandedSale===s.id;
+                const isEditing=editingSale===s.id;
                 return(
                   <div key={s.id} style={{background:s.refunded?"#FFF5F5":C.card,border:"1px solid "+(s.refunded?C.redBorder:C.border),borderRadius:12,overflow:"hidden"}}>
-                    <div className="row-card" onClick={()=>setExpandedSale(exp?null:s.id)} style={{padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div className="row-card" onClick={()=>{if(!isEditing)setExpandedSale(exp?null:s.id);}} style={{padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <div style={{flex:1}}>
                         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
                           <span style={{fontWeight:700,fontSize:14}}>{s.customer}</span>
@@ -687,24 +832,41 @@ export default function App(){
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
                         <div style={{textAlign:"right"}}>
-                          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:s.refunded?C.red:C.green}}>{(s.refunded?"↩ ":"")+fmtAmt(s.amount,s.currency)}</div>
+                          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:19,fontWeight:700,color:s.refunded?C.red:C.green}}>{(s.refunded?"↩ ":"")+fmtAmt(s.amount,s.currency)}</div>
                           {s.currency!=="₦ NGN"&&<div style={{fontSize:10,color:C.textMuted}}>{"≈ "+fmtNGN(toNGN(s.amount,s.currency))}</div>}
                           {s.refunded&&<div style={{fontSize:10,color:C.red}}>{"Refunded "+s.refundDate}</div>}
                         </div>
                         <span style={{color:C.textDim,fontSize:12}}>{exp?"▲":"▼"}</span>
                       </div>
                     </div>
-                    {exp&&(
+
+                    {exp&&!isEditing&&(
                       <div style={{borderTop:"1px solid "+C.border,padding:"12px 16px",background:C.bg,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                         <span style={{fontSize:12,color:C.textMuted,flex:1}}>
                           {s.payMethod&&"💳 "+s.payMethod}
                           {s.payRef&&" · Ref: "+s.payRef}
                           {s.refunded&&" · Refunded: "+fmtAmt(s.refundAmount||s.amount,s.currency)+" on "+s.refundDate}
                         </span>
+                        <button className="qbtn" onClick={()=>{setEditingSale(s.id);setEditSF({...s});}} style={{background:C.goldBg,color:C.gold}}>✏️ Edit</button>
                         {!s.refunded&&s.payStatus==="Paid"&&(
-                          <button className="qbtn" onClick={()=>setShowRefund(s.id)} style={{background:C.redBg,color:C.red}}>↩ Issue Refund</button>
+                          <button className="qbtn" onClick={()=>setShowRefund(s.id)} style={{background:C.redBg,color:C.red}}>↩ Refund</button>
                         )}
                         <button className="del-btn" onClick={()=>delItem("sales",s.id,setSales,sales,()=>setExpandedSale(null))}>×</button>
+                      </div>
+                    )}
+
+                    {isEditing&&(
+                      <div style={{borderTop:"1px solid "+C.goldBorder,padding:"16px",background:C.goldBg}} className="pop">
+                        <div style={{fontWeight:800,marginBottom:12,color:C.gold}}>Edit Sale — {s.customer}</div>
+                        <Row>
+                          <F label="Customer *"><NameInput value={editSF.customer||""} onChange={v=>setEditSF(p=>({...p,customer:v}))} list={allNames}/></F>
+                          <F label="Product"><Sel value={editSF.product||""} onChange={e=>setEditSF({...editSF,product:e.target.value})}>{PRODUCTS.map(p=><option key={p}>{p}</option>)}</Sel></F>
+                        </Row>
+                        <Row><F label="Amount *"><Inp type="number" value={editSF.amount||""} onChange={e=>setEditSF({...editSF,amount:e.target.value})}/></F><F label="Currency"><Sel value={editSF.currency||"₦ NGN"} onChange={e=>setEditSF({...editSF,currency:e.target.value})}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</Sel></F></Row>
+                        <Row><F label="Payment Method"><Sel value={editSF.payMethod||""} onChange={e=>setEditSF({...editSF,payMethod:e.target.value})}>{PAYMENT_METHODS.map(m=><option key={m}>{m}</option>)}</Sel></F><F label="Ref / Teller No."><Inp value={editSF.payRef||""} onChange={e=>setEditSF({...editSF,payRef:e.target.value})}/></F></Row>
+                        <Row><F label="Date"><Inp type="date" value={editSF.date||""} onChange={e=>setEditSF({...editSF,date:e.target.value})}/></F><F label="Payment Status"><Sel value={editSF.payStatus||""} onChange={e=>setEditSF({...editSF,payStatus:e.target.value})}>{["Paid","Pending","Overdue"].map(s=><option key={s}>{s}</option>)}</Sel></F></Row>
+                        <F label="Delivery"><Sel value={editSF.delivery||""} onChange={e=>setEditSF({...editSF,delivery:e.target.value})}>{["Delivered","Scheduled","Pending","Not Sent"].map(s=><option key={s}>{s}</option>)}</Sel></F>
+                        <div style={{display:"flex",gap:10,marginTop:4}}><GoldBtn onClick={saveEditSale}>Save Changes</GoldBtn><GhostBtn onClick={()=>setEditingSale(null)}>Cancel</GhostBtn></div>
                       </div>
                     )}
                   </div>
@@ -715,7 +877,7 @@ export default function App(){
           </div>
         )}
 
-        {/* CUSTOMERS */}
+        {/* ══ CUSTOMERS ══ */}
         {tab==="customers"&&(
           <div>
             <SectionHead title="Customer Database" sub={customers.length+" customers"} action={<GoldBtn onClick={()=>setShowCF(!showCF)}>+ Add Customer</GoldBtn>}/>
@@ -723,7 +885,7 @@ export default function App(){
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Customer</div>
                 <Row>
-                  <F label="Full Name *"><Inp placeholder="Hajiya Binta" value={cf.name} onChange={e=>setCf({...cf,name:e.target.value})}/></F>
+                  <F label="Full Name *"><NameInput value={cf.name} onChange={v=>{setCf(p=>({...p,name:v}));const m=leads.find(l=>normName(l.name)===normName(v));if(m?.phone&&!cf.phone)setCf(p=>({...p,phone:m.phone}));}} list={allNames} placeholder="Hajiya Binta"/></F>
                   <F label="Phone *"><PhoneRow value={cf.phone} onChange={e=>setCf({...cf,phone:e.target.value})} onPickContact={()=>pickContact(c=>setCf(p=>({...p,name:c.name||p.name,phone:c.phone||p.phone})),toast$)}/></F>
                 </Row>
                 <Row><F label="City"><Sel value={cf.city} onChange={e=>setCf({...cf,city:e.target.value})}>{CITIES.map(c=><option key={c}>{c}</option>)}</Sel></F><F label="Notes"><Inp placeholder="Any notes..." value={cf.notes} onChange={e=>setCf({...cf,notes:e.target.value})}/></F></Row>
@@ -737,7 +899,7 @@ export default function App(){
                   <div>
                     <div style={{fontWeight:700,fontSize:14,marginBottom:3}}>{c.name}</div>
                     <div style={{fontSize:12,color:C.textMuted}}>{c.phone+" · "+c.city}</div>
-                    {c.notes&&<div style={{fontSize:11,color:C.textDim,fontStyle:"italic",marginTop:3}}>{"\""+c.notes+"\""}</div>}
+                    {c.notes&&<div style={{fontSize:11,color:C.textDim,fontStyle:"italic",marginTop:3}}>{'"'+c.notes+'"'}</div>}
                   </div>
                   <div style={{textAlign:"right"}}>
                     <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold}}>{fmtNGN(c.totalNGN||0)}</div>
@@ -751,7 +913,7 @@ export default function App(){
           </div>
         )}
 
-        {/* BOOKINGS */}
+        {/* ══ BOOKINGS ══ */}
         {tab==="bookings"&&(
           <div>
             <SectionHead title="Session Bookings" sub={bookings.length+" total · "+bookings.filter(b=>b.status==="Confirmed").length+" confirmed"} action={<GoldBtn onClick={()=>setShowBF(!showBF)}>+ Book Session</GoldBtn>}/>
@@ -761,10 +923,7 @@ export default function App(){
                 <div style={{fontSize:11,fontWeight:700,color:C.purple,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📋 Leads Awaiting Booking</div>
                 {pendingBookingLeads.map(l=>(
                   <div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(125,60,152,0.1)"}}>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:700}}>{l.name}</div>
-                      <div style={{fontSize:11,color:C.purple}}>{l.phone+" · "+l.product}</div>
-                    </div>
+                    <div><div style={{fontSize:13,fontWeight:700}}>{l.name}</div><div style={{fontSize:11,color:C.purple}}>{l.phone+" · "+l.product}</div></div>
                     <button className="qbtn" onClick={()=>bookFromLead(l)} style={{background:C.purple,color:"#fff"}}>📅 Book Now</button>
                   </div>
                 ))}
@@ -775,7 +934,7 @@ export default function App(){
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Booking</div>
                 <Row>
-                  <F label="Client Name *"><input style={INP} list="cust-names" placeholder="Start typing name..." value={bf.client} onChange={e=>setBf({...bf,client:e.target.value})}/></F>
+                  <F label="Client Name *"><NameInput value={bf.client} onChange={v=>{setBf(p=>({...p,client:v}));const m=[...customers,...leads].find(x=>normName(x.name)===normName(v));if(m?.phone&&!bf.phone)setBf(p=>({...p,phone:m.phone}));}} list={allNames} placeholder="Start typing name..."/></F>
                   <F label="Phone"><PhoneRow value={bf.phone} onChange={e=>setBf({...bf,phone:e.target.value})} onPickContact={()=>pickContact(c=>setBf(p=>({...p,client:c.name||p.client,phone:c.phone||p.phone})),toast$)}/></F>
                 </Row>
                 <F label="Session Type"><Sel value={bf.session} onChange={e=>setBf({...bf,session:e.target.value})}>{SESSION_TYPES.map(s=><option key={s}>{s}</option>)}</Sel></F>
@@ -806,7 +965,7 @@ export default function App(){
                       <div>
                         <div style={{fontWeight:700,fontSize:14}}>{b.client}</div>
                         <div style={{fontSize:12,color:C.textMuted}}>{b.session}</div>
-                        {b.notes&&<div style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>{"\""+b.notes+"\""}</div>}
+                        {b.notes&&<div style={{fontSize:11,color:C.textDim,fontStyle:"italic"}}>{'"'+b.notes+'"'}</div>}
                       </div>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -822,7 +981,7 @@ export default function App(){
           </div>
         )}
 
-        {/* COHORTS */}
+        {/* ══ COHORTS ══ */}
         {tab==="cohorts"&&(
           <div>
             <SectionHead title="Cohort Phases" sub="Bootcamp and Life Sessions tracking" action={<GoldBtn onClick={()=>setShowCoF(!showCoF)}>+ New Cohort</GoldBtn>}/>
@@ -876,7 +1035,7 @@ export default function App(){
           </div>
         )}
 
-        {/* INTEL */}
+        {/* ══ CLIENT INTEL ══ */}
         {tab==="intel"&&(
           <div>
             <SectionHead title="Client Intelligence" sub="Session notes · pain points · market research" action={<GoldBtn onClick={()=>setShowIF(!showIF)}>+ New Session Note</GoldBtn>}/>
@@ -895,16 +1054,16 @@ export default function App(){
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Session Notes</div>
                 <Row>
-                  <F label="Client Name *"><input style={INP} list="cust-names" placeholder="Start typing name..." value={inf.client} onChange={e=>setInf({...inf,client:e.target.value})}/></F>
+                  <F label="Client Name *"><NameInput value={inf.client} onChange={v=>setInf(p=>({...p,client:v}))} list={allNames} placeholder="Start typing name..."/></F>
                   <F label="Date"><Inp type="date" value={inf.date} onChange={e=>setInf({...inf,date:e.target.value})}/></F>
                 </Row>
                 <F label="Session Type"><Sel value={inf.session} onChange={e=>setInf({...inf,session:e.target.value})}>{SESSION_TYPES.map(s=><option key={s}>{s}</option>)}</Sel></F>
-                <F label="Raw Notes"><Txt placeholder="Write freely — what did she share?" value={inf.notes} onChange={e=>setInf({...inf,notes:e.target.value})} style={{minHeight:120}}/></F>
-                <F label="Your Summary"><Txt placeholder="What is the real root problem?" value={inf.summary} onChange={e=>setInf({...inf,summary:e.target.value})}/></F>
-                <F label="Action Items"><Txt placeholder="1. Do this. 2. Try this." value={inf.actions} onChange={e=>setInf({...inf,actions:e.target.value})}/></F>
-                <F label="Pain Point Tags">
+                <F label="Raw Notes — everything they said, their problems, their words"><Txt placeholder="Write freely — what did she share? What problems came up?" value={inf.notes} onChange={e=>setInf({...inf,notes:e.target.value})} style={{minHeight:120}}/></F>
+                <F label="Your Summary — core issue in 1-2 sentences"><Txt placeholder="What is the real root problem?" value={inf.summary} onChange={e=>setInf({...inf,summary:e.target.value})}/></F>
+                <F label="Action Items for Client"><Txt placeholder="1. Do this. 2. Try this." value={inf.actions} onChange={e=>setInf({...inf,actions:e.target.value})}/></F>
+                <F label="Pain Point Tags — tap to select">
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:4}}>
-                    {PAIN_TAGS.map(tag=>{const sel=inf.tags.includes(tag);return <span key={tag} className="tag-chip" onClick={()=>toggleTag(tag)} style={{background:sel?C.goldBg:"#F5F0EA",color:sel?C.gold:C.textMuted,border:"1px solid "+(sel?C.goldBorder:C.border)}}>{(sel?"✓ ":"")+tag}</span>;})}
+                    {PAIN_TAGS.map(tag=>{const sel=inf.tags.includes(tag);return <span key={tag} className="tag-chip" onClick={()=>toggleTag(tag)} style={{background:sel?C.goldBg:"#F5F0EA",color:sel?C.gold:C.textMuted,border:"1px solid "+(sel?C.goldBorder:C.border)}}>{sel?"✓ ":""}{tag}</span>;})}
                   </div>
                 </F>
                 <div style={{display:"flex",gap:10,marginTop:8}}><GoldBtn onClick={addIntel}>Save Notes</GoldBtn><GhostBtn onClick={()=>setShowIF(false)}>Cancel</GhostBtn></div>
@@ -919,7 +1078,7 @@ export default function App(){
                       <div style={{flex:1}}>
                         <div style={{fontWeight:800,fontSize:14,marginBottom:4}}>{i.client}</div>
                         <div style={{fontSize:12,color:C.textMuted,marginBottom:6}}>{i.session+" · "+i.date}</div>
-                        {i.summary&&<div style={{fontSize:13,color:C.textMid,fontStyle:"italic"}}>{"\""+i.summary+"\""}</div>}
+                        {i.summary&&<div style={{fontSize:13,color:C.textMid,fontStyle:"italic"}}>{'"'+i.summary+'"'}</div>}
                         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>{(i.tags||[]).map(tag=><span key={tag} style={{background:C.goldBg,color:C.gold,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{tag}</span>)}</div>
                       </div>
                       <span style={{color:C.textDim,fontSize:14,flexShrink:0,marginLeft:12}}>{exp?"▲":"▼"}</span>
@@ -939,38 +1098,34 @@ export default function App(){
           </div>
         )}
 
-        {/* PROCUREMENT */}
+        {/* ══ PROCUREMENT ══ */}
         {tab==="procurement"&&(
           <div>
-            <SectionHead title="Procurement Inquiries" sub={procurement.length+" inquiries · China sourcing demand"} action={<GoldBtn onClick={()=>setShowPF(!showPF)}>+ New Inquiry</GoldBtn>}/>
-            <Card style={{marginBottom:16,background:"linear-gradient(135deg,#EAF4FB,#F0F8FF)",border:"1px solid rgba(36,113,163,0.2)"}}>
+            <SectionHead title="Procurement Inquiries" sub={procurement.length+" inquiries · China sourcing"} action={<GoldBtn onClick={()=>setShowPF(!showPF)}>+ New Inquiry</GoldBtn>}/>
+            <Card style={{marginBottom:16,background:"linear-gradient(135deg,#EAF4FB,#F0F8FF)",border:"1px solid "+C.blue+"33"}}>
               <div style={{fontSize:11,fontWeight:700,color:C.blue,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>📦 Market Signal</div>
-              <div style={{fontSize:13,color:C.textMid,lineHeight:1.7}}>China imports to Nigeria surged <strong>37%</strong> in 2025. Track every inquiry here — high demand = your next procurement offering.</div>
+              <div style={{fontSize:13,color:C.textMid,lineHeight:1.7}}>China imports to Nigeria surged <strong>37%</strong> in 2025. Track every inquiry — high demand = your next procurement service offering.</div>
             </Card>
             {showPF&&(
               <Card style={{marginBottom:16,border:"1px solid "+C.goldBorder,background:C.goldBg}} className="pop">
                 <div style={{fontWeight:800,marginBottom:14,color:C.gold}}>New Procurement Inquiry</div>
                 <Row>
-                  <F label="Client Name *"><Inp placeholder="Maryam Garba" value={pf.name} onChange={e=>setPf({...pf,name:e.target.value})}/></F>
+                  <F label="Client Name *"><NameInput value={pf.name} onChange={v=>setPf(p=>({...p,name:v}))} list={allNames} placeholder="Maryam Garba"/></F>
                   <F label="Phone"><PhoneRow value={pf.phone} onChange={e=>setPf({...pf,phone:e.target.value})} onPickContact={()=>pickContact(c=>setPf(p=>({...p,name:c.name||p.name,phone:c.phone||p.phone})),toast$)}/></F>
                 </Row>
-                <Row><F label="Product / Category *"><Inp placeholder="Kitchen appliances, fabric..." value={pf.product} onChange={e=>setPf({...pf,product:e.target.value})}/></F><F label="Quantity"><Inp placeholder="50 units" value={pf.qty} onChange={e=>setPf({...pf,qty:e.target.value})}/></F></Row>
-                <Row><F label="Budget"><Inp placeholder="500,000" value={pf.budget} onChange={e=>setPf({...pf,budget:e.target.value})}/></F><F label="Currency"><Sel value={pf.currency} onChange={e=>setPf({...pf,currency:e.target.value})}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</Sel></F></Row>
-                <Row><F label="Timeline"><Inp placeholder="Before June" value={pf.timeline} onChange={e=>setPf({...pf,timeline:e.target.value})}/></F><F label="Status"><Sel value={pf.status} onChange={e=>setPf({...pf,status:e.target.value})}>{["Inquiry","Quoted","In Progress","Completed","Cancelled"].map(s=><option key={s}>{s}</option>)}</Sel></F></Row>
-                <F label="Notes"><Txt placeholder="Concerns, supplier needs..." value={pf.notes} onChange={e=>setPf({...pf,notes:e.target.value})}/></F>
+                <Row><F label="Product / Category *"><Inp placeholder="Kitchen appliances, fabric..." value={pf.product} onChange={e=>setPf({...pf,product:e.target.value})}/></F><F label="Quantity"><Inp placeholder="50 units / 200 yards" value={pf.qty} onChange={e=>setPf({...pf,qty:e.target.value})}/></F></Row>
+                <Row><F label="Budget"><Inp placeholder="₦500,000" value={pf.budget} onChange={e=>setPf({...pf,budget:e.target.value})}/></F><F label="Currency"><Sel value={pf.currency} onChange={e=>setPf({...pf,currency:e.target.value})}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</Sel></F></Row>
+                <Row><F label="Timeline"><Inp placeholder="Before June, Before Canton Fair" value={pf.timeline} onChange={e=>setPf({...pf,timeline:e.target.value})}/></F><F label="Status"><Sel value={pf.status} onChange={e=>setPf({...pf,status:e.target.value})}>{["Inquiry","Quoted","In Progress","Completed","Cancelled"].map(s=><option key={s}>{s}</option>)}</Sel></F></Row>
+                <F label="Notes"><Txt placeholder="Supplier needs, concerns..." value={pf.notes} onChange={e=>setPf({...pf,notes:e.target.value})}/></F>
                 <div style={{display:"flex",gap:10}}><GoldBtn onClick={addProcurement}>Save Inquiry</GoldBtn><GhostBtn onClick={()=>setShowPF(false)}>Cancel</GhostBtn></div>
               </Card>
             )}
-            <input style={{...INP,marginBottom:12}} placeholder="Search inquiries..." value={search} onChange={e=>setSearch(e.target.value)}/>
+            <input style={{...INP,marginBottom:12}} placeholder="Search procurement..." value={search} onChange={e=>setSearch(e.target.value)}/>
             {procurement.length>0&&(
               <div style={{marginBottom:14}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Most Requested</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Most Requested Products</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {[...new Set(procurement.map(p=>p.product))].map(prod=>{
-                    const count=procurement.filter(p=>p.product===prod).length;
-                    return <span key={prod} style={{background:C.tealBg,color:C.teal,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>{prod+" ×"+count}</span>;
-                  })}
-                </div>
+                  {[...new Set(procurement.map(p=>p.product))].map(prod=>{const count=procurement.filter(p=>p.product===prod).length;return <span key={prod} style={{background:C.tealBg,color:C.teal,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>{prod+" ×"+count}</span>;})}</div>
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -983,21 +1138,21 @@ export default function App(){
                       <button className="del-btn" onClick={()=>delItem("procurement",p.id,setProcurement,procurement)}>×</button>
                     </div>
                   </div>
-                  <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>{"📦 "+p.product}</div>
+                  <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:4}}>📦 {p.product}</div>
                   <div style={{display:"flex",gap:16,fontSize:12,color:C.textMuted,flexWrap:"wrap"}}>
                     {p.qty&&<span>{"Qty: "+p.qty}</span>}
                     {p.budget&&<span>{"Budget: "+p.budget+" "+p.currency}</span>}
                     {p.timeline&&<span>{"Timeline: "+p.timeline}</span>}
                   </div>
-                  {p.notes&&<div style={{fontSize:12,color:C.textDim,fontStyle:"italic",marginTop:6}}>{"\""+p.notes+"\""}</div>}
+                  {p.notes&&<div style={{fontSize:12,color:C.textDim,fontStyle:"italic",marginTop:6}}>{'"'+p.notes+'"'}</div>}
                 </div>
               ))}
-              {fProcurement.length===0&&<div style={{textAlign:"center",padding:40,color:C.textMuted,fontSize:14}}>No inquiries yet.</div>}
+              {fProcurement.length===0&&<div style={{textAlign:"center",padding:40,color:C.textMuted,fontSize:14}}>No procurement inquiries yet.</div>}
             </div>
           </div>
         )}
 
-        {/* GOALS */}
+        {/* ══ GOALS ══ */}
         {tab==="tasks"&&(
           <div>
             <SectionHead title="Goals & Roadmap" sub="Monthly · Quarterly · Yearly path to ₦3M/month"/>
